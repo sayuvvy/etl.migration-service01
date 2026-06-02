@@ -1,8 +1,6 @@
 spring:
   application:
     name: migration-service
-  profiles:
-    active: prod
 
   servlet:
     multipart:
