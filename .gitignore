@@ -3,6 +3,8 @@
 
 # Build output
 target/
+deploy/
+*.zip
 
 # IDE files
 .idea/
