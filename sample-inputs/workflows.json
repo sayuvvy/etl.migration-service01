@@ -1,0 +1,86 @@
+{
+  "workflows": [
+    {
+      "id": "wf_daily_customer_load",
+      "name": "wf_daily_customer_load",
+      "description": "Daily customer dimension load workflow",
+      "type": "ETL_WORKFLOW",
+      "scheduling": {
+        "frequency": "DAILY",
+        "startTime": "02:00:00",
+        "timezone": "UTC",
+        "daysOfWeek": ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"]
+      },
+      "tasks": [
+        {
+          "id": "task_1",
+          "name": "tsk_start",
+          "type": "START",
+          "description": "Workflow start point"
+        },
+        {
+          "id": "task_2",
+          "name": "tsk_session_customer_load",
+          "type": "SESSION",
+          "mapping": "m_customer_dim",
+          "instanceName": "inst_customer_dim_load",
+          "sessionParameters": {
+            "$$OutputDir": "/home/informatica/logs",
+            "$$SourceConnectionName": "Oracle_PROD",
+            "$$TargetConnectionName": "SQLSERVER_EDW"
+          },
+          "logLevel": "DETAILED"
+        },
+        {
+          "id": "task_3",
+          "name": "tsk_session_orders_load",
+          "type": "SESSION",
+          "mapping": "m_orders_fact",
+          "dependencies": ["task_2"],
+          "instanceName": "inst_orders_fact_load",
+          "sessionParameters": {
+            "$$OutputDir": "/home/informatica/logs",
+            "$$SourceConnectionName": "Oracle_PROD",
+            "$$TargetConnectionName": "SQLSERVER_EDW"
+          }
+        },
+        {
+          "id": "task_4",
+          "name": "tsk_shell_post_load",
+          "type": "SHELL_COMMAND",
+          "dependencies": ["task_3"],
+          "command": "/usr/local/scripts/post_load_validations.sh",
+          "successEmailNotification": "true",
+          "failureEmailNotification": "true",
+          "notificationRecipients": ["etl_team@company.com"]
+        },
+        {
+          "id": "task_5",
+          "name": "tsk_end",
+          "type": "END",
+          "dependencies": ["task_4"]
+        }
+      ],
+      "parameters": [
+        {
+          "name": "$$InputFilePath",
+          "dataType": "STRING",
+          "defaultValue": "/data/input"
+        },
+        {
+          "name": "$$ProcessDate",
+          "dataType": "DATE",
+          "defaultValue": "$$TODAY"
+        }
+      ],
+      "errorHandling": {
+        "onTaskFailure": "STOP_WORKFLOW",
+        "retryPolicy": {
+          "enabled": true,
+          "maxRetries": 3,
+          "retryIntervalSeconds": 300
+        }
+      }
+    }
+  ]
+}

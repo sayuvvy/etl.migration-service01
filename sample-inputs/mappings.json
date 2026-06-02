@@ -1,0 +1,144 @@
+{
+  "mappings": [
+    {
+      "id": "m_customer_dim",
+      "name": "m_customer_dim",
+      "description": "Customer dimension ETL mapping",
+      "sourceConnections": [
+        {
+          "name": "src_customer",
+          "type": "RDBMS",
+          "connectionString": "Oracle Database",
+          "tables": [
+            {
+              "name": "CUSTOMER",
+              "columns": [
+                {
+                  "name": "CUSTOMER_ID",
+                  "dataType": "INTEGER",
+                  "primaryKey": true
+                },
+                {
+                  "name": "CUSTOMER_NAME",
+                  "dataType": "VARCHAR(100)"
+                },
+                {
+                  "name": "CUSTOMER_EMAIL",
+                  "dataType": "VARCHAR(100)"
+                },
+                {
+                  "name": "CUSTOMER_PHONE",
+                  "dataType": "VARCHAR(20)"
+                },
+                {
+                  "name": "CREATED_DATE",
+                  "dataType": "DATE"
+                },
+                {
+                  "name": "UPDATED_DATE",
+                  "dataType": "DATE"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "targetConnections": [
+        {
+          "name": "tgt_customer_dim",
+          "type": "RDBMS",
+          "connectionString": "SQL Server Database",
+          "tables": [
+            {
+              "name": "DIM_CUSTOMER",
+              "columns": [
+                {
+                  "name": "CUSTOMER_KEY",
+                  "dataType": "BIGINT",
+                  "primaryKey": true
+                },
+                {
+                  "name": "CUSTOMER_ID",
+                  "dataType": "INTEGER"
+                },
+                {
+                  "name": "CUSTOMER_NAME",
+                  "dataType": "VARCHAR(100)"
+                },
+                {
+                  "name": "CUSTOMER_EMAIL",
+                  "dataType": "VARCHAR(100)"
+                },
+                {
+                  "name": "CUSTOMER_PHONE",
+                  "dataType": "VARCHAR(20)"
+                },
+                {
+                  "name": "SCD_TYPE",
+                  "dataType": "VARCHAR(1)"
+                },
+                {
+                  "name": "EFFECTIVE_FROM",
+                  "dataType": "DATE"
+                },
+                {
+                  "name": "EFFECTIVE_TO",
+                  "dataType": "DATE"
+                },
+                {
+                  "name": "IS_ACTIVE",
+                  "dataType": "CHAR(1)"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "transformations": [
+        {
+          "type": "EXPRESSION",
+          "name": "exp_customer_transform",
+          "expressions": [
+            {
+              "name": "CUSTOMER_KEY",
+              "logic": "seq_customer_key.nextval"
+            },
+            {
+              "name": "SCD_TYPE",
+              "logic": "2"
+            },
+            {
+              "name": "EFFECTIVE_FROM",
+              "logic": "SYSDATE"
+            },
+            {
+              "name": "EFFECTIVE_TO",
+              "logic": "to_date('12/31/2099', 'MM/DD/YYYY')"
+            },
+            {
+              "name": "IS_ACTIVE",
+              "logic": "IIF(ISNULL(CUSTOMER_NAME), 'N', 'Y')"
+            }
+          ]
+        },
+        {
+          "type": "JOINER",
+          "name": "jnr_customer_details",
+          "joinCondition": "m_customer_dim.src_customer.CUSTOMER_ID = m_orders.tgt_orders.CUSTOMER_ID"
+        },
+        {
+          "type": "FILTER",
+          "name": "flt_active_customers",
+          "filterCondition": "ISNULL(CUSTOMER_EMAIL) = FALSE"
+        }
+      ],
+      "loadStrategy": "FULL_LOAD",
+      "incrementalStrategy": "SCD_TYPE_2",
+      "errorHandling": {
+        "skipPolicy": "ON_ERROR_CONTINUE",
+        "retryCount": 3,
+        "retryInterval": 300
+      }
+    }
+  ]
+}

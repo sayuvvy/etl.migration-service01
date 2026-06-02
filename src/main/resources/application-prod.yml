@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: migration-service
+  profiles:
+    active: prod
+
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+logging:
+  level:
+    root: WARN
+    com.migration: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: /var/log/migration-service/application.log
+    max-size: 10MB
+    max-history: 10
+
+aws:
+  region: ${AWS_REGION:us-east-1}
+  s3:
+    bucket-name: ${AWS_S3_BUCKET:migration-brs-bucket}
+    brs-path: brs/
+    access-key: ${AWS_ACCESS_KEY:}
+    secret-key: ${AWS_SECRET_KEY:}
+  bedrock:
+    region: ${AWS_BEDROCK_REGION:us-east-1}
+    model-id: ${AWS_BEDROCK_MODEL:claude-3-5-sonnet-20241022}
+
+github:
+  api-token: ${GITHUB_TOKEN:}
+  repo-owner: ${GITHUB_REPO_OWNER:}
+  repo-base-url: https://github.com
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+  compression:
+    enabled: true
+    min-response-size: 1024
+  web:
+    error:
+      include-message: never
+      include-binding-errors: never
+      include-stacktrace: never
+      include-exception: false

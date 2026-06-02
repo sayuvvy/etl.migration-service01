@@ -1,0 +1,67 @@
+{
+  "connections": [
+    {
+      "id": "conn_oracle_prod",
+      "name": "Oracle_PROD",
+      "type": "ORACLE",
+      "description": "Production Oracle Database",
+      "connectionDetails": {
+        "hostname": "oracle.prod.internal",
+        "port": 1521,
+        "database": "PRODDB",
+        "username": "etl_user",
+        "encrypted": true
+      }
+    },
+    {
+      "id": "conn_sqlserver_edw",
+      "name": "SQLSERVER_EDW",
+      "type": "SQL_SERVER",
+      "description": "Enterprise Data Warehouse",
+      "connectionDetails": {
+        "hostname": "sqlserver.edw.internal",
+        "port": 1433,
+        "database": "EDW_PROD",
+        "username": "etl_user",
+        "encrypted": true,
+        "encryptionType": "SSL"
+      }
+    },
+    {
+      "id": "conn_sftp_archive",
+      "name": "SFTP_ARCHIVE",
+      "type": "SFTP",
+      "description": "Archive file system",
+      "connectionDetails": {
+        "hostname": "sftp.archive.internal",
+        "port": 22,
+        "username": "archive_user",
+        "authType": "KEY_PAIR"
+      }
+    }
+  ],
+  "dataAssets": [
+    {
+      "id": "asset_customer_table",
+      "name": "CUSTOMER",
+      "type": "TABLE",
+      "connection": "Oracle_PROD",
+      "properties": {
+        "schema": "SOURCE_SYSTEM",
+        "rowCount": 5000000,
+        "updateFrequency": "DAILY"
+      }
+    },
+    {
+      "id": "asset_dim_customer_table",
+      "name": "DIM_CUSTOMER",
+      "type": "TABLE",
+      "connection": "SQLSERVER_EDW",
+      "properties": {
+        "schema": "DIM",
+        "partitionKey": "CUSTOMER_KEY",
+        "compressionEnabled": true
+      }
+    }
+  ]
+}

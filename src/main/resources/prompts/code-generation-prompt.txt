@@ -1,0 +1,112 @@
+Refer to the BRD document provided and create Spring Batch project with all necessary file and configurations using the below rules
+
+Apply spring batch configuration rules as below
+1. Ensure Spring Boot 3.4.0 version is used
+2. Ensure compatible Spring Batch 5.2.3 version for Spring Boot 3.4.0 is used
+3. Strictly no usage of deprecated class or deprecated method in the code generation
+4. Ensure the generated code compilation builds successfully without any errors
+5. Ensure the code quality to pass quality gates like Sonar Qube
+6. Ensure relevant group id, artifact id is added
+
+project creation rules as below
+1. Name SpringBootApplication file as BatchApplication.java
+2. Create mandatory config java package consisting of following
+	2.1 mandatory JobConfig
+	2.2 mandatory StepConfig to include reader, writer and processor configuration
+	2.3 mandatory DataSourceConfig
+	2.4 mandatory SchedulerConfig
+	2.5 mandatory InterceptorConfig
+	2.6 mandatory CommonBeanConfig for all other config entries
+3. Create mandatory model java package for source and target domain object / pojo class
+4. Create mandatory interceptor java package to accomodate StepExecutionListener implementation
+5. Create mandatory listener java package to accomodate JobLoggingListener, StepLoggingListener, ChunkLoggingListener
+6. Create mandatory mapping java package for row mapper
+7. Create mandatory policy java package for SkipPolicy configuration and Retry configuration in one single java file
+8. Create mandatory processor java package for processor implementation
+9. Create mandatory reader java package for reader implementation
+10. Create mandatory tasklet java package for Tasklets
+11. Create mandatory writer java package for writer implementation
+12. Create Application.yml with configuration entries
+13. Ensure to use Spring Scheduler
+14. Create test project with necessary test scripts to ensure the coverage is 100%
+15. Use jococo plugin to furnish coverage report
+
+job configuration rules as below
+1. Ensure to include jobrepository while setting up job pointing to a SQLServer instance
+2. Ensure to include transaction manager while setting up job
+3. Ensure to include chunk processing for source to target transfomration nature; use 1000 as chunksize for now
+4. Ensure to include skip policy as appropriate
+5. Ensure to include retry policy as appropriate
+6. Design job to be restartable and idempotent so rerun produces same final outcome
+7. Only include Jobparameters if required and StepScope to inject values at runtime
+8. Ensure to configure a meaningful job name and keep saveState enabled
+9. Adopt Outbox pattern as required in case of other dependencies 
+10. Ensure to include Job and Step listeners for tracking lifecycle moments
+11. Ensure to adopt Chunk processing for data transfer and tasklets for file move or control logic
+12. Ensure to log stats and metrics along with job executiuon id and parameters
+13. Ensure to make job and step stateless
+14. Set isolation level for transactions
+15. Configure input file path as job parameter
+16. Ensure JobBuilderFactory is not used and JobBuilder is used with builder construct
+
+step configuration rules as below
+1. Ensure to implement partial commit, retries, restarts so that safe to fail
+2. Ensure to adopt chunk level roll back
+3. Ensure to set meaningful step name
+4. Ensure Steps to be idempotent
+5. StepScope as required
+6. Use ExecutionContext for step logic otherwise stateless
+7. Ensure Steps to be thread safe
+8. Ensure one step takes only one responsibility
+9. Prefer paging reader over cursor
+10. Prefer partitioned steps over multi threaded chunks
+11. Ensure StepBuilderFactory is not used and StepBuilder is used with builder construct
+
+ItemReader rules as below
+1. Cursor: lower memory, continuous DB connection, fewer round-trips; not great for long-running jobs or parallel consumers.
+2. Paging: scalable, parallel-friendly; watch for inconsistent results if the table mutates mid-run—use snapshot/consistent reads if possible.
+3. Idempotency: Always design processing to be idempotent; readers may re-deliver an item after restart.
+4. Transaction Boundaries: Readers usually run outside of (or at the edge of) chunk transactions; ensure the data source read consistency matches your needs (e.g., transaction isolation).
+5. Large Files: Use StaxEventItemReader or FlatFileItemReader with streaming—avoid loading the whole file.
+6. Multi-threading: Many readers are not thread-safe; prefer one reader per partition/step execution, or use readers designed for concurrency (paging) and avoid sharing mutable state.
+7. Validation & Skips: Add a ValidatingItemProcessor or custom processor; configure skip/retry policies at the Step level.
+
+1. For CSV / fixed-width use FlatFileItemReader (+ MultiResourceItemReader if multiple files) with line tokenizer and fieldset line mapper
+2. For XML use StaxEventItemReader
+3. For JSON use JsonItemReader
+4. For JDBC streaming use JdbcCursorItemReader
+5. For JDBC scalable/parallel use JdbcPagingItemReader
+6. For JPA/Hibernate use JpaPagingItemReader or Hibernate variants
+7. For Spring Data repository use RepositoryItemReader
+8. For MongoDB use MongoItemReader / MongoPagingItemReader
+9. For JMS / AMQP use JmsItemReader / AmqpItemReader
+10. For In-memory/testing use ListItemReader, IteratorItemReader, QueueItemReader
+
+ItemProcessor rules as below
+1. Keep processor deterministic and transformational only
+2. Return null only for intentional filtering
+3. Make processor stateless or make use of Itemstream
+4. Make processor threadsafe 
+5. Implement validationProcessor so that invalid items to throw exception
+6. Prefer redis caching for ready-only lookups
+7. Skip deterministic/known exception and retry transient exception
+
+ItemWriter rules as below
+1. make writers stateless and no partial writes
+2. make writers restart-safe, idempotent and acheive Eactly-once
+3. setup specific skip and retry policy
+4. adopt throughput tuning, concurrency and partitioning along with deterministic ordering
+5. JdbcBatchItemWriter while writing to rdbms
+6. JPAItemWriter when using ORM
+7. FlatFileItemWriter when writing to CSV or fixed width with transactional write with header footer callback and support restartability
+8. JmsItemWriter or AmqpItemWriter when writing to queues or topics
+9. CompositeItemWriter for multiple sink scenario
+
+Ensure to print a tabulation listing the comparisons carried out to cross check BRD file to the generated spring batch code
+
+Ensure the generatede code compiles successfully by 
+1. Make Spring Boot determine latest dependencies and modify code as required
+2. Ensure to remove unused import statements in .java files
+3. Ensure to trigger build finally and confirm if the build was successful
+4. In case of build failure fix the build issue and recompile to make build successful
+5. Furnish a build summary of time taken for build completion and created artifacts
