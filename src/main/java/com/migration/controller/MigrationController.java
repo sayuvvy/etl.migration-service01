@@ -38,7 +38,7 @@ public class MigrationController {
         
         try {
             // Upload and process ZIP file
-            Path uploadedZipPath = fileProcessingService.uploadZipFile(zipFile);
+            Path uploadedZipPath = fileProcessingService.uploadFile(zipFile);
             
             // Generate BRS
             String brsS3Path = brsGenerationService.generateBrs(uploadedZipPath, executionId);

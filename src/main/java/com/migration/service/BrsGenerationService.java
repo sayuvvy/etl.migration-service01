@@ -34,13 +34,20 @@ public class BrsGenerationService {
     private final ObjectMapper objectMapper;
     private final FileProcessingService fileProcessingService;
 
-    public String generateBrs(Path zipFilePath, String executionId) throws Exception {
+    public String generateBrs(Path inputFilePath, String executionId) throws Exception {
         log.info("Starting BRS generation for execution: {}", executionId);
-        
+
         try {
-            // Extract and read ZIP file contents
-            String zipContents = extractZipContents(zipFilePath);
-            log.debug("ZIP file extracted successfully. Content length: {}", zipContents.length());
+            String fileName = inputFilePath.getFileName().toString();
+            String fileContents;
+            if (fileName.endsWith(".xml")) {
+                fileContents = extractXmlContents(inputFilePath);
+                log.debug("XML file read successfully. Content length: {}", fileContents.length());
+            } else {
+                fileContents = extractZipContents(inputFilePath);
+                log.debug("ZIP file extracted successfully. Content length: {}", fileContents.length());
+            }
+            String zipContents = fileContents;
             
             // Read the BRD prompt from resources
             String brdPrompt = readBrdPrompt();
@@ -67,10 +74,10 @@ public class BrsGenerationService {
     private String extractZipContents(Path zipFilePath) throws IOException {
         log.info("Extracting ZIP file: {}", zipFilePath);
         StringBuilder contents = new StringBuilder();
-        
+
         try (ZipFile zipFile = new ZipFile(zipFilePath.toFile())) {
             zipFile.stream()
-                    .filter(entry -> entry.getName().endsWith(".json"))
+                    .filter(entry -> entry.getName().endsWith(".json") || entry.getName().endsWith(".xml"))
                     .forEach(entry -> {
                         try {
                             String content = new String(
@@ -84,8 +91,14 @@ public class BrsGenerationService {
                         }
                     });
         }
-        
+
         return contents.toString();
+    }
+
+    private String extractXmlContents(Path xmlFilePath) throws IOException {
+        log.info("Reading XML file: {}", xmlFilePath);
+        String content = new String(Files.readAllBytes(xmlFilePath), StandardCharsets.UTF_8);
+        return "\n--- File: " + xmlFilePath.getFileName() + " ---\n" + content + "\n";
     }
 
     private String readBrdPrompt() throws IOException {

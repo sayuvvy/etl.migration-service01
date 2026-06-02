@@ -16,29 +16,29 @@ import java.util.UUID;
 @Slf4j
 public class FileProcessingService {
 
-    @Value("${file.upload.temp-dir:./temp}")
+    @Value("${file.upload.temp-dir:#{systemProperties['java.io.tmpdir']}}")
     private String tempDirectory;
 
-    public Path uploadZipFile(MultipartFile file) throws IOException {
-        log.info("Processing uploaded ZIP file: {}", file.getOriginalFilename());
-        
-        // Validate file type
-        if (!file.getOriginalFilename().endsWith(".zip")) {
-            throw new IllegalArgumentException("Only ZIP files are supported");
+    public Path uploadFile(MultipartFile file) throws IOException {
+        String originalFilename = file.getOriginalFilename();
+        log.info("Processing uploaded file: {}", originalFilename);
+
+        if (originalFilename == null ||
+                (!originalFilename.endsWith(".zip") && !originalFilename.endsWith(".xml"))) {
+            throw new IllegalArgumentException("Only ZIP and XML files are supported");
         }
-        
-        // Create temp directory if not exists
+
         Path tempDir = Paths.get(tempDirectory);
         Files.createDirectories(tempDir);
-        
-        // Generate unique filename
-        String uniqueFileName = UUID.randomUUID() + "-" + file.getOriginalFilename();
+
+        String uniqueFileName = UUID.randomUUID() + "-" + originalFilename;
         Path uploadPath = tempDir.resolve(uniqueFileName);
-        
-        // Save file
-        file.transferTo(uploadPath.toFile());
-        log.info("ZIP file uploaded successfully: {}", uploadPath);
-        
+
+        try (var inputStream = file.getInputStream()) {
+            Files.copy(inputStream, uploadPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
+        log.info("File uploaded to temp path: {}", uploadPath);
+
         return uploadPath;
     }
 
