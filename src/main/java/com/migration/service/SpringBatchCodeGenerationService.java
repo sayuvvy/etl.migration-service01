@@ -1,23 +1,23 @@
 package com.migration.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.migration.config.AwsConfig;
 import com.migration.config.GitHubConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.ResponseInputStream;
-import software.amazon.awssdk.core.SdkBytes;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
-import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelRequest;
-import software.amazon.awssdk.services.bedrockruntime.model.InvokeModelResponse;
+import software.amazon.awssdk.services.bedrockruntime.model.ContentBlock;
+import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
+import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
+import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
+import software.amazon.awssdk.services.bedrockruntime.model.Message;
+import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -28,7 +28,6 @@ public class SpringBatchCodeGenerationService {
     private final S3Client s3Client;
     private final AwsConfig.AwsProperties awsProperties;
     private final GitHubConfig gitHubConfig;
-    private final ObjectMapper objectMapper;
     private final GitHubService gitHubService;
 
     public String generateSpringBatchCode(String brsS3Path, String executionId, String repoName) throws Exception {
@@ -87,41 +86,19 @@ public class SpringBatchCodeGenerationService {
         );
     }
 
-    private String invokeBedrock(String systemPrompt, String userPrompt) throws Exception {
+    private String invokeBedrock(String systemPrompt, String userPrompt) {
         log.debug("Invoking Bedrock with model: {}", awsProperties.getBedrock().getModelId());
-        
-        Map<String, Object> request = new HashMap<>();
-        request.put("anthropic_version", "bedrock-2023-06-01");
-        request.put("max_tokens", 8000);
-        request.put("system", systemPrompt);
-        request.put("messages", new Object[]{
-                Map.of(
-                        "role", "user",
-                        "content", userPrompt
-                )
-        });
-        
-        String requestJson = objectMapper.writeValueAsString(request);
-        
-        InvokeModelRequest invokeRequest = InvokeModelRequest.builder()
+
+        ConverseRequest converseRequest = ConverseRequest.builder()
                 .modelId(awsProperties.getBedrock().getModelId())
-                .body(SdkBytes.fromString(requestJson, StandardCharsets.UTF_8))
+                .system(SystemContentBlock.builder().text(systemPrompt).build())
+                .messages(Message.builder()
+                        .role(ConversationRole.USER)
+                        .content(ContentBlock.builder().text(userPrompt).build())
+                        .build())
                 .build();
-        
-        InvokeModelResponse response = bedrockRuntimeClient.invokeModel(invokeRequest);
-        
-        String responseBody = response.body().asUtf8String();
-        Map<String, Object> responseMap = objectMapper.readValue(responseBody, Map.class);
-        
-        Object contentArray = responseMap.get("content");
-        if (contentArray instanceof java.util.List) {
-            java.util.List<?> list = (java.util.List<?>) contentArray;
-            if (!list.isEmpty() && list.get(0) instanceof Map) {
-                Map<?, ?> contentMap = (Map<?, ?>) list.get(0);
-                return (String) contentMap.get("text");
-            }
-        }
-        
-        throw new RuntimeException("Unexpected Bedrock response format");
+
+        ConverseResponse response = bedrockRuntimeClient.converse(converseRequest);
+        return response.output().message().content().get(0).text();
     }
 }
