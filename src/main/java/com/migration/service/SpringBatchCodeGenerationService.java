@@ -11,6 +11,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.ContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.ConversationRole;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
+import software.amazon.awssdk.services.bedrockruntime.model.InferenceConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
 import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -91,6 +92,9 @@ public class SpringBatchCodeGenerationService {
 
         ConverseRequest converseRequest = ConverseRequest.builder()
                 .modelId(awsProperties.getBedrock().getModelId())
+                .inferenceConfig(InferenceConfiguration.builder()
+                        .maxTokens(5120)
+                        .build())
                 .system(SystemContentBlock.builder().text(systemPrompt).build())
                 .messages(Message.builder()
                         .role(ConversationRole.USER)
