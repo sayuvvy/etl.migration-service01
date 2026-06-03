@@ -98,13 +98,6 @@
             <version>2.11.5</version>
         </dependency>
 
-        <!-- GitHub API -->
-        <dependency>
-            <groupId>org.kohsuke</groupId>
-            <artifactId>github-api</artifactId>
-            <version>1.320</version>
-        </dependency>
-
         <!-- Logging -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
