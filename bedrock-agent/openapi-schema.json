@@ -1,0 +1,100 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Migration Service API",
+    "version": "1.0.0",
+    "description": "Informatica IDMC to Spring Batch migration service"
+  },
+  "paths": {
+    "/generate-brs": {
+      "post": {
+        "operationId": "generateBrs",
+        "description": "Generate a Business Requirements Document (BRS) from an Informatica IDMC export file (ZIP or XML) stored in S3. Call this when the user wants to analyze an Informatica export or generate a BRS.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["s3_bucket", "s3_key"],
+                "properties": {
+                  "s3_bucket": {
+                    "type": "string",
+                    "description": "The S3 bucket containing the Informatica export file"
+                  },
+                  "s3_key": {
+                    "type": "string",
+                    "description": "The S3 key (path) of the export file. Must be a ZIP or XML file."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "BRS generated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "message": { "type": "string" },
+                    "brs_file_path": { "type": "string", "description": "S3 path of the generated BRS document" },
+                    "execution_id": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/generate-code": {
+      "post": {
+        "operationId": "generateSpringBatchCode",
+        "description": "Generate Spring Batch Java code from a BRS document and push it to a new GitHub repository. Call this after a BRS has been generated.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["brs_s3_path", "repo_name"],
+                "properties": {
+                  "brs_s3_path": {
+                    "type": "string",
+                    "description": "The full S3 path of the BRS document returned from generateBrs (e.g. s3://bucket/brs/brs-xxx.md)"
+                  },
+                  "repo_name": {
+                    "type": "string",
+                    "description": "Name for the GitHub repository where the generated Spring Batch code will be pushed"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Spring Batch code generated and pushed to GitHub",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "message": { "type": "string" },
+                    "spring_batch_repo_url": { "type": "string", "description": "GitHub URL of the generated Spring Batch project" },
+                    "execution_id": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
