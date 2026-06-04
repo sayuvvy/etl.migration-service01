@@ -4,6 +4,7 @@ import com.migration.config.AwsConfig;
 import com.migration.config.GitHubConfig;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.core.ResponseInputStream;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
@@ -17,8 +18,6 @@ import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
-
-import org.springframework.scheduling.annotation.Async;
 
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
@@ -39,42 +38,63 @@ public class SpringBatchCodeGenerationService {
     private final GitHubService gitHubService;
     private final ExecutionStatusService executionStatusService;
 
-    private static final Pattern FILE_PATH_PATTERN = Pattern.compile(
-            "[\\w][\\w/\\-]*\\.(?:java|xml|yml|yaml|properties|sql|json|gradle|md|txt)",
-            Pattern.CASE_INSENSITIVE
-    );
-
     private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile(
-            "```(?:java|xml|yaml|yml|properties|sql|json|gradle|bash|)?\\n([\\s\\S]*?)```",
+            "```(?:java|xml|yaml|yml|properties|sql|json|gradle|bash)?\\n([\\s\\S]*?)```",
             Pattern.MULTILINE
     );
 
-    // Each phase generates a focused set of files to stay within token limits
-    private static final List<String> GENERATION_PHASES = List.of(
-            "Generate ONLY pom.xml and src/main/resources/application.yml with complete content.",
-            "Generate ONLY src/main/java/com/migration/batch/BatchApplication.java, " +
-            "src/main/java/com/migration/batch/config/JobConfig.java and " +
-            "src/main/java/com/migration/batch/config/StepConfig.java.",
-            "Generate ONLY src/main/java/com/migration/batch/config/DataSourceConfig.java, " +
-            "src/main/java/com/migration/batch/config/SchedulerConfig.java and " +
-            "src/main/java/com/migration/batch/config/CommonBeanConfig.java.",
-            "Generate ONLY src/main/java/com/migration/batch/config/InterceptorConfig.java, " +
-            "the model package POJOs under src/main/java/com/migration/batch/model/ and " +
-            "src/main/java/com/migration/batch/mapping/RowMapper.java.",
-            "Generate ONLY the reader package under src/main/java/com/migration/batch/reader/ " +
-            "and processor package under src/main/java/com/migration/batch/processor/.",
-            "Generate ONLY the writer package under src/main/java/com/migration/batch/writer/, " +
-            "tasklet package under src/main/java/com/migration/batch/tasklet/ and " +
-            "src/main/java/com/migration/batch/policy/SkipAndRetryPolicy.java.",
-            "Generate ONLY the listener package under src/main/java/com/migration/batch/listener/ " +
-            "(JobLoggingListener, StepLoggingListener, ChunkLoggingListener) and " +
-            "src/main/java/com/migration/batch/interceptor/StepExecutionListenerImpl.java."
+    private static final String PKG = "src/main/java/com/migration/batch";
+
+    // One entry per file: [filePath, focused generation instruction]
+    private static final List<String[]> GENERATION_FILES = List.of(
+        new String[]{"pom.xml",
+            "Generate ONLY pom.xml. Use Spring Boot 3.4.0 parent, Spring Batch 5.2.3, Java 21, SQLServer JDBC driver, JaCoCo plugin. Output ONLY the file content in a ```xml block."},
+        new String[]{"src/main/resources/application.yml",
+            "Generate ONLY application.yml with Spring Batch, SQLServer datasource, Spring Scheduler and logging config. Output ONLY in a ```yaml block."},
+        new String[]{PKG + "/BatchApplication.java",
+            "Generate ONLY BatchApplication.java with @SpringBootApplication and main method. Package: com.migration.batch. Output ONLY in a ```java block."},
+        new String[]{PKG + "/config/JobConfig.java",
+            "Generate ONLY JobConfig.java using JobBuilder (NOT JobBuilderFactory). Include JobRepository, TransactionManager, listeners, restartable, idempotent. Package: com.migration.batch.config. Output ONLY in a ```java block."},
+        new String[]{PKG + "/config/StepConfig.java",
+            "Generate ONLY StepConfig.java using StepBuilder (NOT StepBuilderFactory). Chunk size 1000, skip policy, retry policy, StepScope. Package: com.migration.batch.config. Output ONLY in a ```java block."},
+        new String[]{PKG + "/config/DataSourceConfig.java",
+            "Generate ONLY DataSourceConfig.java for SQLServer datasource and Spring Batch JobRepository. Package: com.migration.batch.config. Output ONLY in a ```java block."},
+        new String[]{PKG + "/config/SchedulerConfig.java",
+            "Generate ONLY SchedulerConfig.java using @Scheduled to trigger the batch job. Package: com.migration.batch.config. Output ONLY in a ```java block."},
+        new String[]{PKG + "/config/InterceptorConfig.java",
+            "Generate ONLY InterceptorConfig.java registering StepExecutionListeners. Package: com.migration.batch.config. Output ONLY in a ```java block."},
+        new String[]{PKG + "/config/CommonBeanConfig.java",
+            "Generate ONLY CommonBeanConfig.java with common beans such as ObjectMapper and RestTemplate. Package: com.migration.batch.config. Output ONLY in a ```java block."},
+        new String[]{PKG + "/model/SourceEntity.java",
+            "Generate ONLY SourceEntity.java POJO derived from the BRS source data model. Package: com.migration.batch.model. Output ONLY in a ```java block."},
+        new String[]{PKG + "/model/TargetEntity.java",
+            "Generate ONLY TargetEntity.java POJO derived from the BRS target data model. Package: com.migration.batch.model. Output ONLY in a ```java block."},
+        new String[]{PKG + "/mapping/SourceRowMapper.java",
+            "Generate ONLY SourceRowMapper.java implementing RowMapper<SourceEntity> for JDBC. Package: com.migration.batch.mapping. Output ONLY in a ```java block."},
+        new String[]{PKG + "/interceptor/StepExecutionListenerImpl.java",
+            "Generate ONLY StepExecutionListenerImpl.java implementing StepExecutionListener. Log step start, end, stats. Package: com.migration.batch.interceptor. Output ONLY in a ```java block."},
+        new String[]{PKG + "/listener/JobLoggingListener.java",
+            "Generate ONLY JobLoggingListener.java implementing JobExecutionListener. Log job start, end, status, duration. Package: com.migration.batch.listener. Output ONLY in a ```java block."},
+        new String[]{PKG + "/listener/StepLoggingListener.java",
+            "Generate ONLY StepLoggingListener.java implementing StepExecutionListener. Log step metrics. Package: com.migration.batch.listener. Output ONLY in a ```java block."},
+        new String[]{PKG + "/listener/ChunkLoggingListener.java",
+            "Generate ONLY ChunkLoggingListener.java implementing ChunkListener. Log chunk read/write counts. Package: com.migration.batch.listener. Output ONLY in a ```java block."},
+        new String[]{PKG + "/policy/SkipAndRetryPolicy.java",
+            "Generate ONLY SkipAndRetryPolicy.java implementing SkipPolicy with retry configuration. Package: com.migration.batch.policy. Output ONLY in a ```java block."},
+        new String[]{PKG + "/processor/DataItemProcessor.java",
+            "Generate ONLY DataItemProcessor.java implementing ItemProcessor<SourceEntity, TargetEntity>. Include validation, transformation, null for filtered items. Package: com.migration.batch.processor. Output ONLY in a ```java block."},
+        new String[]{PKG + "/reader/DataItemReader.java",
+            "Generate ONLY DataItemReader.java using JdbcPagingItemReader for SQLServer. Page size 1000. Package: com.migration.batch.reader. Output ONLY in a ```java block."},
+        new String[]{PKG + "/tasklet/FileTasklet.java",
+            "Generate ONLY FileTasklet.java implementing Tasklet for file move/control logic. Package: com.migration.batch.tasklet. Output ONLY in a ```java block."},
+        new String[]{PKG + "/writer/DataItemWriter.java",
+            "Generate ONLY DataItemWriter.java using JdbcBatchItemWriter to write TargetEntity to SQLServer. Exactly-once, idempotent. Package: com.migration.batch.writer. Output ONLY in a ```java block."}
     );
 
     @Async("codeGenerationExecutor")
     public void generateSpringBatchCodeAsync(String brsS3Path, String executionId, String repoName) {
         try {
-            executionStatusService.setProcessing(executionId);
+            executionStatusService.setProcessing(executionId, GENERATION_FILES.size());
             String repoUrl = generateSpringBatchCode(brsS3Path, executionId, repoName);
             executionStatusService.setSuccess(executionId, repoUrl);
         } catch (Exception e) {
@@ -84,67 +104,47 @@ public class SpringBatchCodeGenerationService {
     }
 
     public String generateSpringBatchCode(String brsS3Path, String executionId, String repoName) throws Exception {
-        log.info("Starting Spring Batch code generation for execution: {} with BRS: {}", executionId, brsS3Path);
+        log.info("Starting Spring Batch code generation for execution: {}", executionId);
 
-        try {
-            String brsContent = readBrsFromS3(brsS3Path);
-            String codeGenPrompt = readCodeGenerationPrompt();
+        String brsContent     = readBrsFromS3(brsS3Path);
+        String codeGenPrompt  = readCodeGenerationPrompt();
+        Map<String, String> allFiles = new LinkedHashMap<>();
 
-            Map<String, String> allFiles = new LinkedHashMap<>();
+        for (int i = 0; i < GENERATION_FILES.size(); i++) {
+            String filePath    = GENERATION_FILES.get(i)[0];
+            String instruction = GENERATION_FILES.get(i)[1];
 
-            for (int i = 0; i < GENERATION_PHASES.size(); i++) {
-                log.info("Executing generation phase {}/{}", i + 1, GENERATION_PHASES.size());
-                String phaseInstruction = GENERATION_PHASES.get(i);
-                String userPrompt = phaseInstruction + "\n\nBased on this BRS:\n\n" + brsContent;
+            log.info("Generating file {}/{}: {}", i + 1, GENERATION_FILES.size(), filePath);
 
-                String generatedCode = invokeBedrock(codeGenPrompt, userPrompt);
-                Map<String, String> phaseFiles = parseGeneratedCode(generatedCode);
-                allFiles.putAll(phaseFiles);
-                log.info("Phase {} complete — {} new files, {} total", i + 1, phaseFiles.size(), allFiles.size());
+            try {
+                String userPrompt = instruction + "\n\nBRS document for context:\n\n" + brsContent;
+                String response   = invokeBedrock(codeGenPrompt, userPrompt);
+                String content    = extractCodeBlock(response);
+
+                if (!content.isBlank()) {
+                    allFiles.put(filePath, content);
+                    executionStatusService.addGeneratedFile(executionId, filePath);
+                    log.info("Generated: {}", filePath);
+                } else {
+                    log.warn("No content returned for: {}", filePath);
+                }
+            } catch (Exception e) {
+                log.error("Failed to generate {}: {}", filePath, e.getMessage());
             }
-
-            log.info("All phases complete. Pushing {} files to GitHub", allFiles.size());
-            String repoUrl = gitHubService.pushFilesToGitHub(allFiles, repoName, executionId);
-
-            log.info("Spring Batch code generation completed. Repo URL: {}", repoUrl);
-            return repoUrl;
-
-        } catch (Exception e) {
-            log.error("Error during Spring Batch code generation for execution {}: {}", executionId, e.getMessage(), e);
-            throw e;
         }
+
+        log.info("All files generated ({} total). Pushing to GitHub.", allFiles.size());
+        return gitHubService.pushFilesToGitHub(allFiles, repoName, executionId);
     }
 
-    private Map<String, String> parseGeneratedCode(String generatedCode) {
-        Map<String, String> files = new LinkedHashMap<>();
-
-        Matcher blockMatcher = CODE_BLOCK_PATTERN.matcher(generatedCode);
-        while (blockMatcher.find()) {
-            String codeContent = blockMatcher.group(1);
-            if (codeContent == null || codeContent.isBlank()) continue;
-
-            int lookbackStart = Math.max(0, blockMatcher.start() - 400);
-            String preceding = generatedCode.substring(lookbackStart, blockMatcher.start());
-
-            String filePath = null;
-            Matcher pathMatcher = FILE_PATH_PATTERN.matcher(preceding);
-            while (pathMatcher.find()) {
-                filePath = pathMatcher.group();
-            }
-
-            if (filePath != null && !files.containsKey(filePath)) {
-                files.put(filePath, codeContent);
-                log.debug("Parsed file: {}", filePath);
-            }
-        }
-
-        return files;
+    private String extractCodeBlock(String response) {
+        Matcher matcher = CODE_BLOCK_PATTERN.matcher(response);
+        return matcher.find() ? matcher.group(1) : response;
     }
 
     private String readBrsFromS3(String s3Path) throws Exception {
         log.info("Reading BRS from S3: {}", s3Path);
         String[] parts = s3Path.replace("s3://", "").split("/", 2);
-
         try (ResponseInputStream<GetObjectResponse> response = s3Client.getObject(
                 GetObjectRequest.builder().bucket(parts[0]).key(parts[1]).build())) {
             return new String(response.readAllBytes(), StandardCharsets.UTF_8);
@@ -160,9 +160,9 @@ public class SpringBatchCodeGenerationService {
     }
 
     private String invokeBedrock(String systemPrompt, String userPrompt) {
-        log.debug("Invoking Bedrock with model: {}", awsProperties.getBedrock().getModelId());
+        log.debug("Invoking Bedrock model: {}", awsProperties.getBedrock().getModelId());
 
-        ConverseRequest converseRequest = ConverseRequest.builder()
+        ConverseRequest request = ConverseRequest.builder()
                 .modelId(awsProperties.getBedrock().getModelId())
                 .inferenceConfig(InferenceConfiguration.builder()
                         .maxTokens(5120)
@@ -174,7 +174,7 @@ public class SpringBatchCodeGenerationService {
                         .build())
                 .build();
 
-        ConverseResponse response = bedrockRuntimeClient.converse(converseRequest);
+        ConverseResponse response = bedrockRuntimeClient.converse(request);
         return response.output().message().content().get(0).text();
     }
 }

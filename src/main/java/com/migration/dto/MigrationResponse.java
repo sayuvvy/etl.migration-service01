@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
@@ -13,24 +15,33 @@ import lombok.NoArgsConstructor;
 public class MigrationResponse {
     @JsonProperty("status")
     private String status;
-    
+
     @JsonProperty("message")
     private String message;
-    
+
     @JsonProperty("brs_file_path")
     private String brsFilePath;
-    
+
     @JsonProperty("spring_batch_repo_url")
     private String springBatchRepoUrl;
-    
+
     @JsonProperty("execution_id")
     private String executionId;
-    
+
     @JsonProperty("timestamp")
     private String timestamp;
-    
+
     @JsonProperty("error_details")
     private String errorDetails;
+
+    @JsonProperty("generated_files")
+    private List<String> generatedFiles;
+
+    @JsonProperty("files_generated_count")
+    private Integer filesGeneratedCount;
+
+    @JsonProperty("total_files_expected")
+    private Integer totalFilesExpected;
 }
 
 @Data
