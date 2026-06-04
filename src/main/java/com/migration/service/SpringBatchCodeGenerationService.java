@@ -18,6 +18,8 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
+import org.springframework.scheduling.annotation.Async;
+
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,6 +37,7 @@ public class SpringBatchCodeGenerationService {
     private final AwsConfig.AwsProperties awsProperties;
     private final GitHubConfig gitHubConfig;
     private final GitHubService gitHubService;
+    private final ExecutionStatusService executionStatusService;
 
     private static final Pattern FILE_PATH_PATTERN = Pattern.compile(
             "[\\w][\\w/\\-]*\\.(?:java|xml|yml|yaml|properties|sql|json|gradle|md|txt)",
@@ -67,6 +70,18 @@ public class SpringBatchCodeGenerationService {
             "(JobLoggingListener, StepLoggingListener, ChunkLoggingListener) and " +
             "src/main/java/com/migration/batch/interceptor/StepExecutionListenerImpl.java."
     );
+
+    @Async("codeGenerationExecutor")
+    public void generateSpringBatchCodeAsync(String brsS3Path, String executionId, String repoName) {
+        try {
+            executionStatusService.setProcessing(executionId);
+            String repoUrl = generateSpringBatchCode(brsS3Path, executionId, repoName);
+            executionStatusService.setSuccess(executionId, repoUrl);
+        } catch (Exception e) {
+            log.error("Async code generation failed for execution {}: {}", executionId, e.getMessage(), e);
+            executionStatusService.setFailed(executionId, e.getMessage());
+        }
+    }
 
     public String generateSpringBatchCode(String brsS3Path, String executionId, String repoName) throws Exception {
         log.info("Starting Spring Batch code generation for execution: {} with BRS: {}", executionId, brsS3Path);
