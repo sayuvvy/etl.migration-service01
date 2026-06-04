@@ -19,6 +19,11 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -31,50 +36,102 @@ public class SpringBatchCodeGenerationService {
     private final GitHubConfig gitHubConfig;
     private final GitHubService gitHubService;
 
+    private static final Pattern FILE_PATH_PATTERN = Pattern.compile(
+            "[\\w][\\w/\\-]*\\.(?:java|xml|yml|yaml|properties|sql|json|gradle|md|txt)",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile(
+            "```(?:java|xml|yaml|yml|properties|sql|json|gradle|bash|)?\\n([\\s\\S]*?)```",
+            Pattern.MULTILINE
+    );
+
+    // Each phase generates a focused set of files to stay within token limits
+    private static final List<String> GENERATION_PHASES = List.of(
+            "Generate ONLY pom.xml and src/main/resources/application.yml with complete content.",
+            "Generate ONLY src/main/java/com/migration/batch/BatchApplication.java, " +
+            "src/main/java/com/migration/batch/config/JobConfig.java and " +
+            "src/main/java/com/migration/batch/config/StepConfig.java.",
+            "Generate ONLY src/main/java/com/migration/batch/config/DataSourceConfig.java, " +
+            "src/main/java/com/migration/batch/config/SchedulerConfig.java and " +
+            "src/main/java/com/migration/batch/config/CommonBeanConfig.java.",
+            "Generate ONLY src/main/java/com/migration/batch/config/InterceptorConfig.java, " +
+            "the model package POJOs under src/main/java/com/migration/batch/model/ and " +
+            "src/main/java/com/migration/batch/mapping/RowMapper.java.",
+            "Generate ONLY the reader package under src/main/java/com/migration/batch/reader/ " +
+            "and processor package under src/main/java/com/migration/batch/processor/.",
+            "Generate ONLY the writer package under src/main/java/com/migration/batch/writer/, " +
+            "tasklet package under src/main/java/com/migration/batch/tasklet/ and " +
+            "src/main/java/com/migration/batch/policy/SkipAndRetryPolicy.java.",
+            "Generate ONLY the listener package under src/main/java/com/migration/batch/listener/ " +
+            "(JobLoggingListener, StepLoggingListener, ChunkLoggingListener) and " +
+            "src/main/java/com/migration/batch/interceptor/StepExecutionListenerImpl.java."
+    );
+
     public String generateSpringBatchCode(String brsS3Path, String executionId, String repoName) throws Exception {
         log.info("Starting Spring Batch code generation for execution: {} with BRS: {}", executionId, brsS3Path);
-        
+
         try {
-            // Read BRS from S3
             String brsContent = readBrsFromS3(brsS3Path);
-            log.debug("BRS content retrieved from S3");
-            
-            // Read the code generation prompt
             String codeGenPrompt = readCodeGenerationPrompt();
-            
-            // Prepare Bedrock request
-            String systemPrompt = codeGenPrompt;
-            String userPrompt = "Based on the following Business Requirements Document, generate a complete Spring Batch 5.2.3 project for Spring Boot 3.4.0:\n\n" + brsContent;
-            
-            // Call Bedrock Claude model
-            String generatedCode = invokeBedrock(systemPrompt, userPrompt);
-            
-            // Push code to GitHub
-            String repoUrl = gitHubService.pushCodeToGitHub(generatedCode, repoName, executionId);
-            
-            log.info("Spring Batch code generation completed successfully. Repo URL: {}", repoUrl);
+
+            Map<String, String> allFiles = new LinkedHashMap<>();
+
+            for (int i = 0; i < GENERATION_PHASES.size(); i++) {
+                log.info("Executing generation phase {}/{}", i + 1, GENERATION_PHASES.size());
+                String phaseInstruction = GENERATION_PHASES.get(i);
+                String userPrompt = phaseInstruction + "\n\nBased on this BRS:\n\n" + brsContent;
+
+                String generatedCode = invokeBedrock(codeGenPrompt, userPrompt);
+                Map<String, String> phaseFiles = parseGeneratedCode(generatedCode);
+                allFiles.putAll(phaseFiles);
+                log.info("Phase {} complete — {} new files, {} total", i + 1, phaseFiles.size(), allFiles.size());
+            }
+
+            log.info("All phases complete. Pushing {} files to GitHub", allFiles.size());
+            String repoUrl = gitHubService.pushFilesToGitHub(allFiles, repoName, executionId);
+
+            log.info("Spring Batch code generation completed. Repo URL: {}", repoUrl);
             return repoUrl;
-            
+
         } catch (Exception e) {
             log.error("Error during Spring Batch code generation for execution {}: {}", executionId, e.getMessage(), e);
             throw e;
         }
     }
 
+    private Map<String, String> parseGeneratedCode(String generatedCode) {
+        Map<String, String> files = new LinkedHashMap<>();
+
+        Matcher blockMatcher = CODE_BLOCK_PATTERN.matcher(generatedCode);
+        while (blockMatcher.find()) {
+            String codeContent = blockMatcher.group(1);
+            if (codeContent == null || codeContent.isBlank()) continue;
+
+            int lookbackStart = Math.max(0, blockMatcher.start() - 400);
+            String preceding = generatedCode.substring(lookbackStart, blockMatcher.start());
+
+            String filePath = null;
+            Matcher pathMatcher = FILE_PATH_PATTERN.matcher(preceding);
+            while (pathMatcher.find()) {
+                filePath = pathMatcher.group();
+            }
+
+            if (filePath != null && !files.containsKey(filePath)) {
+                files.put(filePath, codeContent);
+                log.debug("Parsed file: {}", filePath);
+            }
+        }
+
+        return files;
+    }
+
     private String readBrsFromS3(String s3Path) throws Exception {
         log.info("Reading BRS from S3: {}", s3Path);
-        
-        // Parse S3 path (format: s3://bucket/key)
         String[] parts = s3Path.replace("s3://", "").split("/", 2);
-        String bucket = parts[0];
-        String key = parts[1];
-        
-        GetObjectRequest getObjectRequest = GetObjectRequest.builder()
-                .bucket(bucket)
-                .key(key)
-                .build();
-        
-        try (ResponseInputStream<GetObjectResponse> response = s3Client.getObject(getObjectRequest)) {
+
+        try (ResponseInputStream<GetObjectResponse> response = s3Client.getObject(
+                GetObjectRequest.builder().bucket(parts[0]).key(parts[1]).build())) {
             return new String(response.readAllBytes(), StandardCharsets.UTF_8);
         }
     }

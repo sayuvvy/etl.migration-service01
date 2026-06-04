@@ -14,11 +14,8 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Base64;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -28,23 +25,11 @@ public class GitHubService {
     private static final String GITHUB_API = "https://api.github.com";
     private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
-    // Matches a file path (with common source extensions) in headings, backticks or plain text
-    private static final Pattern FILE_PATH_PATTERN = Pattern.compile(
-            "[\\w][\\w/\\-]*\\.(?:java|xml|yml|yaml|properties|sql|json|gradle|md|txt)",
-            Pattern.CASE_INSENSITIVE
-    );
-
-    // Matches a markdown code block
-    private static final Pattern CODE_BLOCK_PATTERN = Pattern.compile(
-            "```(?:java|xml|yaml|yml|properties|sql|json|gradle|bash|)?\\n([\\s\\S]*?)```",
-            Pattern.MULTILINE
-    );
-
     private final GitHubConfig gitHubConfig;
     private final ObjectMapper objectMapper;
 
-    public String pushCodeToGitHub(String generatedCode, String repoName, String executionId) throws Exception {
-        log.info("Pushing generated Spring Batch code to GitHub. Repo: {}, Execution: {}", repoName, executionId);
+    public String pushFilesToGitHub(Map<String, String> files, String repoName, String executionId) throws Exception {
+        log.info("Pushing {} files to GitHub. Repo: {}, Execution: {}", files.size(), repoName, executionId);
 
         String finalRepoName = String.format("%s-%s-%s",
                 repoName,
@@ -54,12 +39,8 @@ public class GitHubService {
 
         String repoUrl = createRepository(finalRepoName);
 
-        Map<String, String> files = parseGeneratedCode(generatedCode);
-        log.info("Parsed {} files from generated code", files.size());
-
         if (files.isEmpty()) {
-            log.warn("No structured files found — pushing full response as generated-code.md");
-            pushFile(finalRepoName, "generated-code.md", generatedCode, "Add generated Spring Batch code");
+            log.warn("No files to push — repository created but empty");
         } else {
             for (Map.Entry<String, String> entry : files.entrySet()) {
                 pushFile(finalRepoName, entry.getKey(), entry.getValue(), "Add " + entry.getKey());
@@ -67,36 +48,8 @@ public class GitHubService {
             }
         }
 
-        log.info("Code pushed successfully to: {}", repoUrl);
+        log.info("All files pushed to: {}", repoUrl);
         return repoUrl;
-    }
-
-    // Parse the LLM markdown response and extract individual files.
-    // Strategy: for each code block, look back up to 400 chars for the nearest file path mention.
-    private Map<String, String> parseGeneratedCode(String generatedCode) {
-        Map<String, String> files = new LinkedHashMap<>();
-
-        Matcher blockMatcher = CODE_BLOCK_PATTERN.matcher(generatedCode);
-        while (blockMatcher.find()) {
-            String codeContent = blockMatcher.group(1);
-            if (codeContent == null || codeContent.isBlank()) continue;
-
-            int lookbackStart = Math.max(0, blockMatcher.start() - 400);
-            String preceding = generatedCode.substring(lookbackStart, blockMatcher.start());
-
-            // Find the last file path mention in the preceding text
-            String filePath = null;
-            Matcher pathMatcher = FILE_PATH_PATTERN.matcher(preceding);
-            while (pathMatcher.find()) {
-                filePath = pathMatcher.group();
-            }
-
-            if (filePath != null && !files.containsKey(filePath)) {
-                files.put(filePath, codeContent);
-            }
-        }
-
-        return files;
     }
 
     private String createRepository(String repoName) throws Exception {
